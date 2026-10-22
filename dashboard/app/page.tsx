@@ -426,7 +426,7 @@ function PermissionMatrix() {
 
 function RealVsSimulated() {
   const real = [
-    "Live phone calls (Twilio), voice (Cartesia), speech-to-text (Deepgram), reasoning (Claude)",
+    "Live phone calls (Twilio), voice and speech-to-text (Cartesia Sonic + Ink), reasoning (Claude)",
     "CRS sandbox calls against test identities",
     "Holds and the permission gate enforced in our code",
   ];

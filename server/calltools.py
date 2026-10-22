@@ -73,6 +73,15 @@ def tool_specs(case) -> list[dict]:
     return [t for t in TOOL_SPECS if t["name"] != "connect_family" or family_label(case)]
 
 
+def keyterms(case) -> list[str]:
+    """Words this call's STT should expect: the answer options she'll pick from, names, the purchase."""
+    m = MEMBERS[case.member_id]
+    fam = m["family"]
+    terms = [o for q in verify.questions(case.id) for o in q["options"]]
+    terms += [CU, m["first_name"], case.merchant, "gift cards", "Microsoft", "IRS"] + ([fam["name"]] if fam else [])
+    return list(dict.fromkeys(terms))[:100]
+
+
 def build_prompt(case, inbound: bool, resume: bool = False) -> str:
     m = MEMBERS[case.member_id]
     fam = family_label(case) or "your family"

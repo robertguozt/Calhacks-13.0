@@ -13,7 +13,7 @@ Nessie (poll 2s) ─▶ triage (Claude Opus 5.5) ◀── CRS identity + credit
                          ▼
               code floor + permission gate ─▶ hold
                          │
-   Twilio call ◀── Pipecat: Deepgram → Claude Haiku 5.5 → Cartesia
+   Twilio call ◀── Pipecat: Cartesia Ink → Claude Haiku 5.5 → Cartesia Sonic
    member (outbound / callback on the card number) · family message · live family bridge
                          │
               Convex case file ─▶ live dashboard ─▶ 7am: Factory Droid reviews the night,
@@ -115,6 +115,9 @@ Demo reset: the dashboard's Reset button clears cases; `uv run seed.py` again fo
 ## Cartesia features used
 
 - **Sonic TTS over Twilio Media Streams** (8 kHz, via Pipecat's `CartesiaTTSService`) for every call.
+- **Ink STT (`ink-2`) with per-call keyterms.** The recognizer is biased toward this call's four answer options,
+  her name, the merchant and scam words, so an older member's answer isn't misheard as a wrong option. That matters
+  because each question allows only one try. `STT=deepgram` switches back.
 - **`generation_config`: `speed=0.9`, `emotion="content"`.** Slower and warmer for older listeners.
 - **Same voice on every call type:** the outbound check, the inbound callback on the card number, the family
   message, and the intro before the family bridge. The voice members hear is the credit union's voice.
@@ -124,7 +127,7 @@ Demo reset: the dashboard's Reset button clears cases; `uv run seed.py` again fo
 
 | Real | Simulated |
 |---|---|
-| Phone calls (Twilio), voice (Cartesia), STT (Deepgram), reasoning (Claude) | The credit union, and Dolores (CRS test identity P20) |
+| Phone calls (Twilio), voice and STT (Cartesia), reasoning (Claude) | The credit union, and Dolores (CRS test identity P20) |
 | CRS sandbox calls against test identities | Nessie is Capital One's sandbox bank, not a real core |
 | FTC scam alerts, scraped live by our Apify actor | The scammer (a teammate) |
 | Holds, the code floor and the permission gate, enforced in our code | Holds don't reach a card network |

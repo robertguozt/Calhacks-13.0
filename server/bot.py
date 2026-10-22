@@ -29,6 +29,7 @@ from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.anthropic.llm import AnthropicLLMService
+from pipecat.services.cartesia.stt import CartesiaSTTService
 from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.llm_service import FunctionCallParams
@@ -43,7 +44,7 @@ from calltools import CALL_MODEL, CU
 from members import MEMBERS, by_phone
 
 
-def services(system: str | None = None):
+def services(system: str | None = None, keyterms: list[str] | None = None):
     tts = CartesiaTTSService(
         api_key=os.environ["CARTESIA_API_KEY"],
         settings=CartesiaTTSService.Settings(
@@ -53,7 +54,11 @@ def services(system: str | None = None):
     )
     if system is None:
         return tts
-    stt = DeepgramSTTService(api_key=os.environ["DEEPGRAM_API_KEY"])
+    if os.getenv("STT") == "deepgram":  # fallback knob for demo day
+        stt = DeepgramSTTService(api_key=os.environ["DEEPGRAM_API_KEY"])
+    else:  # Cartesia Ink, biased toward this call's answer options so her answers aren't misheard
+        stt = CartesiaSTTService(api_key=os.environ["CARTESIA_API_KEY"],
+                                 settings=CartesiaSTTService.Settings(model="ink-2", keyterm=keyterms or None))
     llm = AnthropicLLMService(
         api_key=os.environ["ANTHROPIC_API_KEY"],
         settings=AnthropicLLMService.Settings(model=CALL_MODEL, system_instruction=system, enable_prompt_caching=True),
@@ -112,7 +117,7 @@ async def one_way(transport, runner_args, text: str):
 
 
 async def member_call(transport, serializer: HandoffSerializer, runner_args, case, inbound: bool, resume: bool):
-    stt, llm, tts = services(calltools.build_prompt(case, inbound, resume))
+    stt, llm, tts = services(calltools.build_prompt(case, inbound, resume), calltools.keyterms(case))
     case.member_call_sid = runner_args.call_data.call_id if runner_args.call_data else None
 
     async def handler(params: FunctionCallParams):
