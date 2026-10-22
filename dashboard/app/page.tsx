@@ -387,7 +387,7 @@ const MATRIX: [string, string, string, string][] = [
   ["Call the member; verify identity first", "✅", "", ""],
   ["Call the trusted family contact", "Only on red flags or 2 unanswered tries", "", ""],
   ["Connect the member live to her trusted contact (agent then leaves the call)", "", "✅ (verified, her choice)", ""],
-  ["Release a hold under $1,000", "", "✅ (after verification)", ""],
+  ["Release a hold under $1,000 (not a first-ever gift card, wire or crypto)", "", "✅ (after verification)", ""],
   ["Release a hold of $1,000+", "", "", "✅"],
   ["Move, refund, or send money", "❌ never", "❌", "✅ only"],
   ["Close or freeze the account", "❌ never", "", "✅ only"],

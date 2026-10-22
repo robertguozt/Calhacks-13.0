@@ -34,7 +34,8 @@ async def on_new_purchase(member_id: str, txn: dict, history: list[dict]):
     )
     local_time = datetime.datetime.now().strftime("%a %-I:%M %p")
     t = await triage(m, history, txn, crs.signals(data) + history_signals, alerts=alerts, local_time=local_time)
-    floor = gate.must_hold(txn, history) if t.decision == "allow" else None
+    rule = gate.must_hold(txn, history)
+    floor = rule if t.decision == "allow" else None
     held = t.decision == "hold" or bool(floor)
     signals = [s.model_dump() for s in t.risk_signals]
     cid = await store.open_case(
@@ -43,7 +44,8 @@ async def on_new_purchase(member_id: str, txn: dict, history: list[dict]):
         risk_signals=signals, plan=t.plan, decision_rationale=t.rationale,
     )
     case = Case(cid, member_id, txn["txn_id"], txn["merchant"], txn["category"], float(txn["amount"]),
-                status="open" if held else "allowed", signals=signals, plan=t.plan, rationale=t.rationale)
+                status="open" if held else "allowed", signals=signals, plan=t.plan, rationale=t.rationale,
+                held_by_rule=bool(rule))
     CASES[cid] = case
     await store.action(cid, "triage", "agent", f"{t.decision.upper()}: {t.rationale}")
     if floor:

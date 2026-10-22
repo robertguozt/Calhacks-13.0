@@ -1,6 +1,7 @@
 """Pipecat voice bot on Twilio Media Streams: Deepgram STT -> Claude -> Cartesia TTS.
 
-Modes, chosen from the stream parameters set in server.py /twiml:
+The prompt and tool effects live in calltools.py (shared with arena.py). Modes, chosen
+from the stream parameters set in server.py /twiml:
 - member (outbound call, or inbound callback to the card number): verify, then talk it through
 - family: one-way Cartesia message to the trusted contact, then hang up
 - bridge: short Cartesia intro to the trusted contact, then she joins the member in a live call
@@ -17,6 +18,7 @@ import asyncio
 import os
 
 from loguru import logger
+from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import CancelFrame, EndFrame, EndWorkerFrame, LLMRunFrame, TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -35,45 +37,10 @@ from pipecat.workers.runner import WorkerRunner
 from twilio.rest import Client as Twilio
 
 import agent
+import calltools
 import store
-import verify
+from calltools import CALL_MODEL, CU
 from members import MEMBERS, by_phone
-
-CU = "Bayview Community Credit Union"
-CALL_MODEL = "claude-haiku-5-5"  # lowest latency for live speech
-
-PROMPT = """You are the after-hours fraud assistant for {cu}, {how} {name}. This is a phone call: everything you say is spoken aloud.
-Speak slowly, warmly, in short sentences. One question at a time. No lists, markdown or emoji. Never rush.
-Never say "you were scammed" or "you fell for". Say "this looks like a pattern scammers use" and let her decide.
-
-{first}
-
-THE PAUSED PURCHASE: ${amount:,.0f} at {merchant} ({category}). Why it was paused: {rationale}
-
-HARD RULES:
-- Never ask for a PIN, password, one-time code, full card number or Social Security number. Say once, early: "I will never ask for a PIN, password or code."
-- Before discussing the purchase, verify identity with these questions, one at a time, reading the four options aloud:
-{questions}
-  Call check_answer with the option she picked, exactly as written. You are never told the right answer. Stop when it says verified or failed.
-  If failed, or there are no questions, do not discuss the purchase: say a staff member will call in the morning, call escalate_to_analyst, say goodbye, then end_call.
-- Once verified, ask whether she made this purchase herself, and whether anyone asked her to buy it.
-- If someone asked her to buy gift cards, read numbers, keep it secret, or said they were Microsoft, the IRS, the police, or a grandchild in trouble:
-  keep the hold. Explain gently that real companies never ask for gift cards. Call escalate_to_analyst.
-  Scammers work by cutting people off from family. So offer, as her choice: "Would you like me to connect you with {family} right now, on this call?"
-  If she says yes: say "I'm connecting you now. Please stay on the line; you'll hear music for a moment." then call connect_family.
-  If she says no, respect it, don't ask again, and call notify_trusted_contact instead (a short message, no details).
-- release_hold only if she is verified, made the purchase knowingly, and nobody told her to buy it. It may be refused; if so, say an analyst will review it in the morning.
-- You cannot move, refund or send money. If unsure, keep the hold and escalate. Holding is cheap; releasing a scam is not.
-- Every tool call needs a one-sentence reason; it goes into the case file.
-- When the conversation is done, say goodbye, then call end_call."""
-
-FIRST_OUT = ('Your first words, exactly: "Hi, this is the after-hours assistant at {cu}, calling for {first_name}. '
-             "You don't have to trust this call. You can hang up and call the number on the back of your card, and I'll pick up there.\"")
-FIRST_IN = ('Your first words, exactly: "{cu} after-hours line. Is this {first_name}? I see we paused a purchase on your account tonight. '
-            'Thank you for calling back. Calling the number on your card was exactly the right thing to do."')
-RESUME = ("You are back on the line after trying to connect her with {family}, who did not answer. Your first words: tell her gently that "
-          "{family} didn't pick up, the payment stays paused, and a staff member will call her in the morning. "
-          "She is already verified; do not ask the questions again. Ask if there's anything else, then say goodbye and end_call.")
 
 
 def services(system: str | None = None):
@@ -145,86 +112,19 @@ async def one_way(transport, runner_args, text: str):
 
 
 async def member_call(transport, serializer: HandoffSerializer, runner_args, case, inbound: bool, resume: bool):
-    m = MEMBERS[case.member_id]
-    fam = m["family"]
-    fam_name = f"your {fam['relation']} {fam['name']}" if fam else "your family"
-    qs = verify.questions(case.id)
-    first = RESUME.format(family=fam_name) if resume else (FIRST_IN if inbound else FIRST_OUT).format(cu=CU, first_name=m["first_name"])
-    system = PROMPT.format(
-        cu=CU, how="answering a call from" if inbound else "calling", name=m["name"], first=first,
-        amount=case.amount, merchant=case.merchant, category=case.category, rationale=case.rationale, family=fam_name,
-        questions="\n".join(f"  {q['number']}. {q['question']} Options: {', '.join(q['options'])}." for q in qs) or "  (none available)",
-    )
-    stt, llm, tts = services(system)
+    stt, llm, tts = services(calltools.build_prompt(case, inbound, resume))
     case.member_call_sid = runner_args.call_data.call_id if runner_args.call_data else None
 
-    async def check_answer(params: FunctionCallParams, question_number: int, answer: str):
-        """Check the member's answer to a verification question.
-
-        Args:
-            question_number: The question's number.
-            answer: The option she picked, exactly as written in the options.
-        """
-        r = verify.check_answer(case.id, question_number, answer)
-        if r.get("verified") and not case.verified:
-            case.verified = True  # set by code from the checked answers, never by the model
-            await store.action(case.id, "verify", "member", "Identity verified from her credit-file answers")
-        elif r.get("failed"):
-            await store.action(case.id, "verify", "member", "Identity verification failed")
-        await params.result_callback(r)
-
-    async def release_hold(params: FunctionCallParams, reason: str):
-        """Release the hold so the purchase goes through. Only after verification, when she made it knowingly and nobody told her to.
-
-        Args:
-            reason: One sentence for the case file.
-        """
-        why = await agent.do(case, "release", "member", reason)
-        await params.result_callback({"released": why is None, "refused": why})
-
-    async def notify_trusted_contact(params: FunctionCallParams, reason: str):
-        """Call her trusted family contact to say a payment is paused (no amounts or details). Use on red flags.
-
-        Args:
-            reason: One sentence for the case file, naming the red flag.
-        """
-        case.red_flags = True  # only ever tightens what the gate allows
-        why = await agent.do(case, "call_family", "agent", reason)
-        await params.result_callback({"calling": why is None, "refused": why})
-
-    async def connect_family(params: FunctionCallParams, reason: str):
-        """Connect her to her trusted family contact on a live call, then leave the line. Only if she said yes.
-
-        Args:
-            reason: One sentence for the case file, including that she asked for it.
-        """
-        case.red_flags = True  # she was pressured; same tightening as notify_trusted_contact
-        why = await agent.do(case, "connect_family", "member", reason)
-        await params.result_callback({"connecting": why is None, "refused": why})
-        if why is None:
+    async def handler(params: FunctionCallParams):
+        r = await calltools.run_tool(case, params.function_name, dict(params.arguments))
+        await params.result_callback({k: v for k, v in r.items() if not k.startswith("_")})
+        if r.get("_handoff"):
             serializer.hand_off()
-            await params.llm.push_frame(EndWorkerFrame(reason="bridging to family"))
+        if r.get("_end") or r.get("_handoff"):
+            await params.llm.push_frame(EndWorkerFrame(reason=params.function_name))
 
-    async def escalate_to_analyst(params: FunctionCallParams, reason: str):
-        """Keep the hold and send the case to a human analyst for the morning.
-
-        Args:
-            reason: One sentence for the case file.
-        """
-        why = await agent.do(case, "escalate", "agent", reason)
-        await params.result_callback({"escalated": why is None, "refused": why})
-
-    async def end_call(params: FunctionCallParams, reason: str):
-        """Hang up. Say goodbye first.
-
-        Args:
-            reason: One sentence for the case file.
-        """
-        await store.action(case.id, "call", "agent", f"Call ended: {reason}")
-        await params.result_callback({"ok": True})
-        await params.llm.push_frame(EndWorkerFrame(reason=reason))
-
-    tools = [check_answer, release_hold, notify_trusted_contact, escalate_to_analyst, end_call] + ([connect_family] if fam else [])
+    tools = [FunctionSchema(t["name"], t["description"], t["properties"], t["required"], handler=handler)
+             for t in calltools.tool_specs(case)]
     context = LLMContext(tools=tools)
     user_agg, asst_agg = LLMContextAggregatorPair(context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
     worker = PipelineWorker(

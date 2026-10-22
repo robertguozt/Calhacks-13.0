@@ -26,6 +26,7 @@ class Case:
     red_flags: bool = False  # the member described coaching/pressure on the call
     unanswered_calls: int = 0
     family_notified: bool = False
+    held_by_rule: bool = False  # must_hold() applied: first-ever high-risk category
     bridged: bool = False  # member was connected live to her trusted contact
     member_call_sid: str | None = None  # her current call, for moving it into / out of the family conference
     signals: list = field(default_factory=list)
@@ -82,6 +83,8 @@ def check(action: str, case: Case, by: str) -> str | None:
             return "member identity not verified"
         if case.red_flags:
             return "red flags were raised on the call; an analyst must decide"
+        if case.held_by_rule:  # coached victims are told to say "it's for my grandkids"
+            return f"first-ever {case.category} purchase; an analyst must release it"
         if case.amount >= RELEASE_LIMIT:
             return f"${case.amount:,.0f} is at or over ${RELEASE_LIMIT:,}; an analyst must release it"
         return None
@@ -121,4 +124,6 @@ if __name__ == "__main__":
     assert must_hold(gift, [{"category": "groceries"}])  # Dolores: never bought one
     assert must_hold(gift, [{"category": "gift_card"}]) is None  # Robert: buys them yearly
     assert must_hold({"category": "sporting_goods"}, []) is None  # the bike is triage's call
+    coached = Case("c4", "dolores", "t4", "Target", "gift_card", 500, verified=True, held_by_rule=True)
+    assert check("release", coached, "member") and check("release", coached, "human") is None
     print("gate ok")
