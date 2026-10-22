@@ -1,0 +1,10 @@
+{
+  "title": "FTC Scam Alerts input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "maxAlerts": { "title": "Max alerts", "type": "integer", "description": "Newest alerts to fetch.", "default": 20, "minimum": 1, "maximum": 200 },
+    "crawlDelaySecs": { "title": "Delay between requests (s)", "type": "integer", "description": "Never below 10: consumer.ftc.gov robots.txt sets Crawl-delay 10.", "default": 10, "minimum": 10 },
+    "onlyPaymentMethods": { "title": "Only alerts mentioning these payment methods", "type": "array", "editor": "stringList", "description": "Any of gift_card, wire_transfer, crypto, cash, payment_app. Empty = all.", "default": [] }
+  }
+}

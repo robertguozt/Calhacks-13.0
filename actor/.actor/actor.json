@@ -1,0 +1,22 @@
+{
+  "actorSpecification": 1,
+  "name": "ftc-scam-alerts",
+  "title": "FTC Scam Alerts: scam type, payment method & red flags",
+  "description": "Scrapes FTC consumer alerts and tags each one with the scam type, the payment methods scammers demand (gift cards, wires, crypto), and the FTC's own red-flag sentences. Built for fraud teams protecting older customers.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "input": "./input_schema.json",
+  "dockerfile": "../Dockerfile",
+  "storages": {
+    "dataset": {
+      "actorSpecification": 1,
+      "views": {
+        "overview": {
+          "title": "Alerts",
+          "transformation": { "fields": ["date", "title", "scam_types", "payment_methods", "red_flags", "url"] },
+          "display": { "component": "table" }
+        }
+      }
+    }
+  }
+}

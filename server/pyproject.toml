@@ -1,0 +1,21 @@
+[project]
+name = "second-signature-server"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "pipecat-ai[websocket,cartesia,anthropic,silero,deepgram,runner]>=1.13.0",
+  "anthropic",
+  "convex",
+  "httpx",
+  "twilio",
+  "fastapi",
+  "uvicorn",
+  "python-dotenv",
+  "elasticsearch>=9.5.1",
+  "apify-client>=3.3.0",
+  "droid-sdk>=0.5.0",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

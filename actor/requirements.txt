@@ -1,0 +1,3 @@
+apify>=4.1
+httpx
+beautifulsoup4
