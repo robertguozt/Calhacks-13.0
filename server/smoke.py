@@ -59,3 +59,29 @@ assert agent.CASES["t3"].status == "open"            # floor held it
 asyncio.run(agent.on_new_purchase("robert", {**txn, "txn_id": "t4", "amount": 100}, [{"category": "gift_card", "merchant": "Target Gift Cards", "amount": 75, "date": "2026-09-01"}]))
 assert agent.CASES["t4"].status == "allowed"         # Robert's history: triage's call stands
 print("floor ok")
+
+# --- Scam Shield: protected-line call -> live detection -> whisper -> money-side hold ---
+import shield
+os.environ["SHIELD_NUMBER"] = "+15559990000"
+form = {"From": "+18885551234", "To": "+1 (555) 999-0000", "Direction": "inbound", "CallSid": "CAshield1"}
+x = twiml("", form)
+assert '<Stream track="inbound_track"' in x and "/shield-ws" in x and "shield-CAshield1" in x, x
+assert 'startConferenceOnEnter="false"' in x and "scam shield" in x.lower(), x   # consent notice (<Say> fallback offline)
+conf = "shield-CAshield1"
+from shield import Detector, Verdict
+async def fake_classify(t):
+    scam = "gift cards" in t and "don't tell" in t
+    return Verdict(scam=scam, confidence=0.93 if scam else 0.1, scam_type="tech_support" if scam else "none",
+                   evidence="buy five hundred dollars of gift cards and don't tell your bank", why_short="he wants gift cards and secrecy")
+d = Detector(conf, classify=fake_classify)
+asyncio.run(d.heard("Hi grandma, happy birthday, I got you a gift card!"))      # prefilter hits, model says benign
+assert not shield.SESSIONS[conf]["flagged"]
+shield.SESSIONS[conf]["checked_at"] = 0
+asyncio.run(d.heard("This is Microsoft. Go buy five hundred dollars of gift cards and don't tell your bank."))
+assert shield.SESSIONS[conf]["flagged"] and shield.recent("dolores")["scam_type"] == "tech_support"
+# 10 minutes later she buys gift cards anyway; triage is fooled into "allow", the rule still holds it
+agent.triage = fake_allow
+asyncio.run(agent.on_new_purchase("dolores", {**txn, "txn_id": "t5"}, [{"category": "gift_card", "merchant": "Target", "amount": 50, "date": "2026-09-01"}]))
+c5 = agent.CASES["t5"]
+assert c5.status == "open" and c5.held_by_rule and agent.gate.check("release", c5, "member"), c5
+print("shield ok")

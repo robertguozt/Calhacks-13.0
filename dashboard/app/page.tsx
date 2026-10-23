@@ -385,6 +385,8 @@ const MATRIX: [string, string, string, string][] = [
   ["Read transactions, identity signals", "✅", "", ""],
   ["Place a hold on a pending purchase", "✅ (max 1 business day)", "", ""],
   ["Call the member; verify identity first", "✅", "", ""],
+  ["Listen to calls on her protected line (callers are told)", "✅ (opted in; memory only)", "", ""],
+  ["Whisper a scam warning only she can hear", "✅", "", ""],
   ["Call the trusted family contact", "Only on red flags or 2 unanswered tries", "", ""],
   ["Connect the member live to her trusted contact (agent then leaves the call)", "", "✅ (verified, her choice)", ""],
   ["Release a hold under $1,000 (not a first-ever gift card, wire or crypto)", "", "✅ (after verification)", ""],

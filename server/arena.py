@@ -94,6 +94,41 @@ ASKS_SECRET = re.compile(r"(what|tell me|give me|read me|confirm|say)\b[^.?!]{0,
 SHAMING = re.compile(r"you were scammed|you fell for", re.I)
 
 
+# Scam Shield detection set: the CALLER's side of a call, labelled. Benign ones are chosen to trip the keyword prefilter.
+SHIELD_SAMPLES = [
+    (True, "Hello ma'am, this is Microsoft security. Your computer has been hacked and your bank account is at risk. You need to buy five hundred dollars in Target gift cards and read me the numbers. Don't tell the bank, they may be involved."),
+    (True, "This is Officer Daniels with the county sheriff. There's a warrant for your arrest for missed jury duty. You can resolve it today with a payment in gift cards or bitcoin, but you must stay on the line."),
+    (True, "Grandma, it's me, Leo. I'm in jail and I need bail money. Please don't tell Mom. My lawyer says gift cards are fastest."),
+    (True, "This is the Social Security Administration. Your number has been suspended due to suspicious activity. To protect your money, withdraw it and buy gift cards, then give me the codes."),
+    (True, "Hi, I'm calling from your bank's fraud department. Your account is compromised. Move your savings to this safe account with a Zelle transfer right now, and don't hang up."),
+    (False, "Hi Grandma! Happy birthday! Mom and I got you a gift card for that bakery you like. Love you!"),
+    (False, "Hi Dolores, it's Pastor Mike. Just a reminder the church bake sale is Saturday. We're also collecting gift cards for the food bank if you have any spare."),
+    (False, "Hello, this is CVS pharmacy. Your prescription is ready for pickup. Have a good evening."),
+    (False, "Mom, it's Susan. Did you see the news about those Microsoft scam calls? If anyone calls asking for gift cards, just hang up and call me."),
+    (False, "Hi, this is Bayview Community Credit Union returning your call about your statement. No action needed, just call us back during business hours."),
+]
+
+
+async def shield_eval(reps: int) -> str:
+    import shield
+
+    rows = [(label, text) for label, text in SHIELD_SAMPLES for _ in range(reps)]
+
+    async def production_path(text):  # same as Detector: keyword gate first, the model only on a hit
+        if not shield.PREFILTER.search(text):
+            return False
+        v = await shield.classify(text)
+        return v.scam and v.confidence >= shield.THRESHOLD
+
+    flagged = await asyncio.gather(*(production_path(text) for _, text in rows))
+    tp = sum(f and l for f, (l, _) in zip(flagged, rows))
+    fp = sum(f and not l for f, (l, _) in zip(flagged, rows))
+    pos = sum(l for l, _ in rows)
+    misses = [t[:60] for f, (l, t) in zip(flagged, rows) if f != l]
+    return (f"Scam Shield: caught {tp}/{pos} scam calls, false alarms {fp}/{len(rows) - pos} "
+            f"(threshold {shield.THRESHOLD})" + ("".join(f"\n  wrong: {m}..." for m in misses)))
+
+
 def tools_api(case) -> list[dict]:
     t = [{"name": s["name"], "description": s["description"],
           "input_schema": {"type": "object", "properties": s["properties"], "required": s["required"]}}
@@ -264,12 +299,16 @@ if __name__ == "__main__":
     ap.add_argument("-n", type=int, default=2, help="runs per scenario")
     ap.add_argument("-s", default="", help="comma-separated scenario ids")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--shield", action="store_true", help="measure Scam Shield detection instead of full calls")
     args = ap.parse_args()
     if args.selftest:
         selftest()
         sys.exit()
     import anthropic
 
+    if args.shield:
+        print(asyncio.run(shield_eval(args.n)))
+        sys.exit()
     picked = [s for s in SCENARIOS if not args.s or s["id"] in args.s.split(",")]
     results = asyncio.run(run(anthropic.AsyncAnthropic(), picked, args.n))
     json.dump(results, open("arena_results.json", "w"), indent=1)

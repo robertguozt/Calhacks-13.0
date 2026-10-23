@@ -26,7 +26,7 @@ plan: one sentence. rationale: two sentences a human analyst would sign."""
 
 
 class Signal(BaseModel):
-    source: Literal["nessie", "crs", "apify", "elastic"]
+    source: Literal["nessie", "crs", "apify", "elastic", "shield"]
     fact: str
     weight: float
 

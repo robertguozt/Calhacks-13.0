@@ -18,6 +18,7 @@ MEMBERS = {
         "age": 74,
         "phone_env": "MEMBER_PHONE",
         "family": {"name": "Susan", "relation": "daughter", "phone_env": "FAMILY_PHONE"},
+        "shield_env": "SHIELD_NUMBER",  # her protected line (Scam Shield)
         "notes": "Retired school librarian, member since 1991. Lives alone. Grandson Leo's birthday is Oct 26.",
         "crs": {
             "identity": {

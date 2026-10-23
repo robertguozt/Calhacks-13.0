@@ -16,6 +16,7 @@ import crs
 import gate
 import intel
 import nessie
+import shield
 import store
 import verify
 from gate import Case
@@ -33,8 +34,11 @@ async def on_new_purchase(member_id: str, txn: dict, history: list[dict]):
         crs.pull(member_id, m["crs"]), intel.alerts_for(txn), intel.history_signals(member_id, txn, history)
     )
     local_time = datetime.datetime.now().strftime("%a %-I:%M %p")
-    t = await triage(m, history, txn, crs.signals(data) + history_signals, alerts=alerts, local_time=local_time)
-    rule = gate.must_hold(txn, history)
+    call = shield.recent(member_id)
+    shield_signals = [{"source": "shield", "weight": 0.95, "fact": f"Scam Shield flagged a {call['scam_type'].replace('_', ' ')} call "
+                       f"{max(1, round((time.time() - call['t']) / 60))} min ago; caller said: \"{call['evidence'][:160]}\""}] if call else []
+    t = await triage(m, history, txn, shield_signals + crs.signals(data) + history_signals, alerts=alerts, local_time=local_time)
+    rule = gate.must_hold(txn, history, call)
     floor = rule if t.decision == "allow" else None
     held = t.decision == "hold" or bool(floor)
     signals = [s.model_dump() for s in t.risk_signals]

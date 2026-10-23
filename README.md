@@ -27,11 +27,32 @@ Nessie (poll 2s) ─▶ triage (Claude Opus 5.5) ◀── CRS identity + credit
 | `server/triage.py` | Claude hold/allow with cited risk signals, reading `policy.md`. Any failure means **hold** |
 | `server/agent.py` | Purchase → triage → hold → call → retry → family → escalate; holds expire to an analyst after 1 business day |
 | `server/bot.py` | The voice calls: member, family message, live family bridge |
+| `server/shield.py` | Scam Shield: protected line, live scam-script detection, the whisper |
 | `server/intel.py` | FTC alerts from the Apify actor; Elastic history and scam-pattern search |
 | `server/review.py` | Morning review with the Factory Droid SDK (below) |
 | `server/server.py` | Twilio webhooks (signature-checked), `/ws` media stream, dashboard API, schedules |
 | `actor/` | Apify actor: FTC consumer alerts → scam type, payment methods, red-flag sentences |
 | `dashboard/` | Next.js + Convex: live case timeline, analyst buttons, Judge Scenario form, morning review |
+
+## Scam Shield: catch it during the scam call
+
+Everything above starts after the purchase. The Shield starts while the scammer is still talking.
+Dolores opts in and gets a **protected line** (`SHIELD_NUMBER`; in real life she forwards her landline to it).
+
+1. **Consent first.** The caller hears, in the Cartesia voice: *"This call is protected by Bayview's scam shield, and an
+   automated assistant is listening for scams."* California needs every party's consent, and the notice alone scares off scammers.
+2. **Listen to the caller only.** `<Start><Stream track="inbound_track">` forks the caller's audio to us, while the call
+   continues into a Twilio conference and her phone rings into it.
+3. **Detect cheaply.** Cartesia Ink transcribes. A keyword check (gift cards, "don't tell", Microsoft, IRS, warrant, bail…) gates
+   a Claude Haiku verdict with the caller's exact words as evidence. The transcript is memory-only and dropped at hang-up.
+4. **Whisper to her alone.** A Twilio participant announcement plays a Cartesia-voiced warning to **her leg only**:
+   *"Dolores, only you can hear me. This call sounds like a scam: he wants gift cards and secrecy. It's okay to hang up."*
+5. **Arm the money side.** A flagged call shows up on the dashboard as a case, with the evidence quote. For 24 hours, any gift card,
+   wire or crypto purchase is held by rule, and only an analyst can release it, even if triage is fooled and even for Robert,
+   who buys gift cards every year.
+
+`uv run python arena.py --shield -n 3` measures detection on 10 labelled caller scripts: 5 scams, and 5 benign calls that
+mention gift cards, Microsoft or the bank. It runs the same path as production: keyword gate first, model only on a hit.
 
 ## The family bridge
 
@@ -149,7 +170,7 @@ Demo reset: the dashboard's Reset button clears cases; `uv run seed.py` again fo
 ```bash
 cd server
 uv run python gate.py && uv run python verify.py && uv run python intel.py && uv run python review.py
-uv run python smoke.py     # offline end-to-end: hold-by-default, gate, webhook auth, family bridge, code floor
+uv run python smoke.py     # offline end-to-end: hold-by-default, gate, webhook auth, family bridge, code floor, Scam Shield
 ```
 
 No API keys are in this repo; `.env` is gitignored.

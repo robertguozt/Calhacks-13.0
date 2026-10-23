@@ -26,6 +26,7 @@ import agent  # noqa: E402
 import intel  # noqa: E402
 import nessie  # noqa: E402
 import review  # noqa: E402
+import shield  # noqa: E402
 import store  # noqa: E402
 from members import MEMBERS, by_phone, seed  # noqa: E402
 
@@ -33,6 +34,8 @@ from members import MEMBERS, by_phone, seed  # noqa: E402
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await intel.load_alerts()
+    if os.getenv("SHIELD_NUMBER"):
+        await shield.prerender()
     accounts = {ids["account"]: mid for mid, ids in seed()["members"].items()}
     tasks = [asyncio.create_task(agent.expire_holds())]
     if os.getenv("FACTORY_API_KEY"):
@@ -63,6 +66,8 @@ async def twilio_form(request: Request) -> dict:
 @app.post("/twiml")
 async def twiml(request: Request):
     form, q = await twilio_form(request), request.query_params
+    if shield.shield_member(form.get("To")):  # a call to her protected line
+        return Response(await shield.caller_twiml(form), media_type="application/xml")
     inbound = form.get("Direction") == "inbound"
     mode = q.get("mode", "member")
     case_id = q.get("case_id", "")
@@ -104,6 +109,29 @@ async def ws(websocket: WebSocket):
     except Exception as e:
         logger.exception(f"bot crashed: {e}")
         await websocket.close()
+
+
+@app.websocket("/shield-ws")
+async def shield_ws(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        await shield.listen(websocket)
+    except Exception as e:
+        logger.exception(f"shield listener crashed: {e}")  # the call itself carries on; only detection stops
+
+
+@app.get("/shield/audio/{clip}.wav")
+async def shield_audio(clip: str):
+    if clip not in shield.AUDIO:
+        raise HTTPException(404)
+    return Response(shield.AUDIO[clip], media_type="audio/wav")
+
+
+@app.post("/shield/twiml/{key}")
+async def shield_twiml(key: str):
+    if key not in shield.TWIML:
+        raise HTTPException(404)
+    return Response(shield.TWIML[key], media_type="application/xml")
 
 
 @app.post("/call-status")

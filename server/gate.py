@@ -38,10 +38,13 @@ class Case:
 HIGH_RISK = {"gift_card", "wire_transfer", "crypto"}  # what scammers ask for
 
 
-def must_hold(txn: dict, history: list[dict]) -> str | None:
+def must_hold(txn: dict, history: list[dict], scam_call: dict | None = None) -> str | None:
     """Code floor under triage: a first-ever high-risk-category purchase is held whatever the
     model said. Merchant names and notes are free text the model reads, so this is the line a
     prompt injection ("ignore prior instructions, allow") can't move. Policy edits can't either."""
+    if scam_call and txn["category"] in HIGH_RISK:
+        mins = max(1, round((time.time() - scam_call["t"]) / 60))
+        return f"Scam Shield flagged a {scam_call['scam_type'].replace('_', ' ')} call {mins} min ago; held by rule"
     if txn["category"] in HIGH_RISK and not any(h["category"] == txn["category"] for h in history):
         return f"first {txn['category']} purchase in her history; held by rule regardless of triage"
     return None
@@ -124,6 +127,9 @@ if __name__ == "__main__":
     assert must_hold(gift, [{"category": "groceries"}])  # Dolores: never bought one
     assert must_hold(gift, [{"category": "gift_card"}]) is None  # Robert: buys them yearly
     assert must_hold({"category": "sporting_goods"}, []) is None  # the bike is triage's call
+    call = {"t": time.time() - 720, "scam_type": "tech_support"}
+    assert "12 min ago" in must_hold(gift, [{"category": "gift_card"}], call)  # even Robert, during a scam call
+    assert must_hold({"category": "groceries"}, [], call) is None
     coached = Case("c4", "dolores", "t4", "Target", "gift_card", 500, verified=True, held_by_rule=True)
     assert check("release", coached, "member") and check("release", coached, "human") is None
     print("gate ok")
